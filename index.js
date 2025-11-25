@@ -1,4 +1,4 @@
-﻿require("dotenv").config();
+require("dotenv").config();
 const { Client, GatewayIntentBits, Partials } = require("discord.js");
 
 const client = new Client({
@@ -11,40 +11,58 @@ const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-const TARGET_EMOJI = process.env.TARGET_EMOJI;
-const FORWARD_CHANNEL_ID = process.env.FORWARD_CHANNEL_ID;
+// ----------- 環境変数から読み込み -----------
+const TODO_EMOJI = process.env.TODO_EMOJI;                // Unicode絵文字 or 名前
+const TODO_FORWARD_ID = process.env.TODO_FORWARD_ID;
 
+const DP_EMOJI_ID = process.env.DP_EMOJI_ID;             // カスタム絵文字はIDで判定
+const DP_FORWARD_ID = process.env.DP_FORWARD_ID;
 
 client.once("ready", () => {
     console.log("Bot is online!");
 });
 
-// サーバー全体監視
+// ----------- サーバー全体のリアクション監視 -----------
 client.on("messageReactionAdd", async (reaction, user) => {
     try {
         if (user.bot) return;
 
-        // パーシャルの補完
         if (reaction.partial) await reaction.fetch();
         if (reaction.message.partial) await reaction.message.fetch();
 
-        // 指定の絵文字チェック
-        const emojiName = reaction.emoji.name;
-        if (emojiName !== TARGET_EMOJI) return;
+        let forwardChannelId = null;
 
-        const forwardChannel = await client.channels.fetch(FORWARD_CHANNEL_ID);
-        if (!forwardChannel) return;
+        // Unicode絵文字の場合
+        if (reaction.emoji.name === TODO_EMOJI) {
+            forwardChannelId = TODO_FORWARD_ID;
+        }
+        // カスタム絵文字の場合
+        else if (reaction.emoji.id === DP_EMOJI_ID) {
+            forwardChannelId = DP_FORWARD_ID;
+        } else {
+            return; // 対象外の絵文字 → 無視
+        }
 
-        // メッセージ送信
-        forwardChannel.send(
-            `📌 **リアクション報告**\n` +
-            `**チャンネル:** <#${reaction.message.channelId}>\n` +
-            `**ユーザー:** ${user.tag}\n` +
-            `**メッセージ:** ${reaction.message.content || "(埋め込み・画像など)"}\n` +
-            `**リンク:** ${reaction.message.url}\n` +
-            `**リアクション:** :${emojiName}:\n` +
-            `**日時:** <t:${Math.floor(Date.now() / 1000)}:F>`
-        );
+        const forwardChannel = await client.channels.fetch(forwardChannelId);
+        if (!forwardChannel) {
+            console.error("転送先チャンネルが見つからない:", forwardChannelId);
+            return;
+        }
+
+        // メッセージ本体を送信
+        await forwardChannel.send(`
+**メモ**
+**チャンネル:** <#${reaction.message.channelId}>
+**ユーザー:** ${user.tag}
+**メッセージ:** ${reaction.message.content || "(埋め込み・画像など)"}
+**日時:** <t:${Math.floor(Date.now() / 1000)}:F>
+        `);
+
+        // 添付ファイルを送信（画像など）
+        reaction.message.attachments.forEach(att => forwardChannel.send(att.url));
+
+        // 埋め込みも転送
+        reaction.message.embeds.forEach(embed => forwardChannel.send({ embeds: [embed] }));
 
     } catch (err) {
         console.error("Error:", err);
